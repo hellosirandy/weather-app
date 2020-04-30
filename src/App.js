@@ -1,9 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import Skycons from 'react-skycons';
 import Spinner from 'react-bootstrap/Spinner';
 import moment from 'moment';
-import { useMediaQuery } from 'react-responsive';
 import { darkskyAPIKey, geolocationAPIKey } from './secrets';
+import HourlyForecast from './components/HourlyForecast';
 
 const styles = {
   container: {
@@ -14,42 +13,56 @@ const styles = {
     justifyContent: 'center',
     alignItems: 'center',
   },
-  circle: {
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    borderRadius: '50%',
-    textAlign: 'center',
-    padding: 50,
-    boxSizing: 'border-box',
-  },
   location: {
     fontWeight: 400,
     fontSize: '1.8rem',
     color: 'white',
+    textAlign: 'center',
   },
-  degree: {
+  temperature: {
     fontSize: '5rem',
     margin: 0,
     color: 'white',
   },
-  time: {
-    color: 'white',
+  iconSummary: {
+    display: 'flex',
+    flexDirection: 'column',
+    marginLeft: 20,
+  },
+  tempIconSummary: {
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 20,
+    marginBottom: 20,
+  },
+  summary: {
     margin: 0,
+    color: 'white',
     fontSize: '1rem',
     fontWeight: 500,
+    textAlign: 'center',
+  },
+  error: {
+    fontSize: '1.5rem',
+    color: 'white',
+    textAlign: 'center',
   },
 };
 
 const App = () => {
   const [finished, setFinished] = useState(false);
-  const [width, setWidth] = useState(0);
+  const [error, setError] = useState(false);
   const [data, setData] = useState({
     temp: 0,
     icon: '',
     summary: '',
     location: '',
+    hourlyForecast: [],
   });
   useEffect(() => {
-    navigator.geolocation.getCurrentPosition(async (position) => {
+    const success = async (position) => {
+      console.log(position);
       const lat = position.coords.latitude;
       const lon = position.coords.longitude;
 
@@ -60,56 +73,87 @@ const App = () => {
           fetch(`https://maps.googleapis.com/maps/api/geocode/json?result_type=locality&latlng=${lat},${lon}&key=${geolocationAPIKey}`)
             .then((res) => res.json()),
         ]);
-
+        const hourlyForecast = weatherRes.hourly.data.slice(0, 8).map((forecast) => {
+          const time = moment(forecast.time * 1000).format('LT');
+          const m = time.split(' ')[1];
+          const hour = time.split(':')[0];
+          const formattedTime = `${hour}${m}`;
+          return {
+            time: formattedTime,
+            icon: forecast.icon,
+            precipProbability: forecast.precipProbability,
+            temp: Math.round(forecast.temperature),
+          };
+        });
         setData({
           temp: Math.round(weatherRes.currently.temperature),
-          icon: weatherRes.currently.icon.replace(/-/g, '_').toUpperCase(),
+          icon: weatherRes.currently.icon,
           summary: weatherRes.currently.summary,
           location: geoRes.results[0].formatted_address.trim().replace(/-/g, '').split(',')[0],
+          hourlyForecast,
         });
         setFinished(true);
       } catch (e) {
-        console.log(e);
+        setError(true);
       }
-    });
+    };
+    const error = (err) => {
+      console.log(err);
+    };
+    const options = {
+      enableHighAccuracy: true,
+      timeout: 5000,
+      maximumAge: 0,
+    };
+    navigator.geolocation.getCurrentPosition(success, error, options);
   }, []);
 
-  const refCallback = (element) => {
-    if (element) {
-      setWidth(element.getBoundingClientRect().height);
-    }
+  const iconRefCallback = (icon) => (element) => {
+    const skycons = new window.Skycons({ color: 'white' });
+    skycons.add(element, icon);
   };
 
-  const isMobile = useMediaQuery({ query: '(max-width: 500px)' });
-  return (
-    <div style={styles.container}>
-      {finished ? (
-        <div ref={refCallback} style={isMobile ? { textAlign: 'center' } : { ...styles.circle, width }}>
-          <div>
-            <h6 style={styles.location}>{data.location}</h6>
-            <h6 style={styles.time}>{moment().format('LT')}</h6>
-          </div>
-          <div>
-            <h6 style={styles.degree}>
-              {data.temp}
-              <span style={{ position: 'absolute' }}>&#176;</span>
-            </h6>
-          </div>
-          <div style={{ width: 200, margin: 'auto' }}>
-            <Skycons
-              color="white"
-              icon={data.icon}
-              autoplay={false}
-            />
-            <h6 style={{
-              margin: 0, color: 'white', fontSize: '1rem', fontWeight: 500,
-            }}
-            >
+  let content;
+
+  if (error) {
+    content = (
+      <div>
+        <h6 style={styles.error}>
+Unfortunetly,
+          <br />
+We are unable to retrieve weather.
+        </h6>
+      </div>
+    );
+  } else if (finished) {
+    content = (
+      <div>
+        <div>
+          <h6 style={styles.location}>{data.location}</h6>
+        </div>
+        <div style={styles.tempIconSummary}>
+          <h6 style={styles.temperature}>
+            {data.temp}
+&#176;
+          </h6>
+          <div style={styles.iconSummary}>
+            <canvas style={{ margin: 'auto' }} ref={iconRefCallback(data.icon)} id="icon1" width="80" height="80" />
+            <h6 style={styles.summary}>
               {data.summary}
             </h6>
           </div>
+
         </div>
-      ) : <Spinner animation="grow" />}
+        <HourlyForecast hourlyForecast={data.hourlyForecast} iconRefCallback={iconRefCallback} />
+      </div>
+    );
+  } else {
+    content = <Spinner animation="grow" />;
+  }
+
+  return (
+    <div style={styles.container}>
+      {content}
 
     </div>
   );
